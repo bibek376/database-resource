@@ -1,0 +1,190 @@
+
+------------------------------------Difference Between RANGE LEFT AND RANGE RIGHT--------------------------------------------------------------
+
+RANGE LEFT Example:
+
+CREATE PARTITION FUNCTION OrdersDatePF (date)
+AS RANGE LEFT FOR VALUES ('2022-01-01', '2023-01-01', '2024-01-01');
+
+Partition 1: Less than '2022-01-01'
+Partition 2: Greater than or equal to '2022-01-01' and less than '2023-01-01'
+Partition 3: Greater than or equal to '2023-01-01' and less than '2024-01-01'
+Any values greater than or equal to '2024-01-01' will fall into a default partition if one is defined.
+
+
+RANGE RIGHT Example:
+
+CREATE PARTITION FUNCTION OrdersDatePF (date)
+AS RANGE RIGHT FOR VALUES ('2022-01-01', '2023-01-01', '2024-01-01');
+
+Partition 1: Less than '2022-01-01'
+Partition 2: Greater than or equal to '2022-01-01' and less than or equal to '2023-01-01'
+Partition 3: Greater than '2023-01-01' and less than or equal to '2024-01-01'
+Any values greater than '2024-01-01' will fall into a default partition if one is defined.
+
+
+
+---------------------------------------Implementing Partitioning on existing Data-------------------------------------------------------------
+ALTER DATABASE [FDTestDatabase]
+ADD FILEGROUP [FG_2021];
+
+ALTER DATABASE [FDTestDatabase]
+ADD FILE (NAME = 'FG_2021', FILENAME = 'D:\Fdtest_test\data\FG_2021.ndf') TO FILEGROUP [FG_2021];
+
+
+ALTER DATABASE [FDTestDatabase]
+ADD FILEGROUP [FG_2022];
+
+ALTER DATABASE [FDTestDatabase]
+ADD FILE (NAME = 'FG_2022', FILENAME = 'D:\Fdtest_test\data\FG_2022.ndf') TO FILEGROUP [FG_2022];
+
+
+ALTER DATABASE [FDTestDatabase]
+ADD FILEGROUP [FG_2023];
+
+ALTER DATABASE [FDTestDatabase]
+ADD FILE (NAME = 'FG_2023', FILENAME = 'D:\Fdtest_test\data\FG_2023.ndf') TO FILEGROUP [FG_2023];
+
+ALTER DATABASE [FDTestDatabase]
+ADD FILEGROUP [FG_2024];
+
+ALTER DATABASE [FDTestDatabase]
+ADD FILE (NAME = 'FG_2024', FILENAME = 'D:\Fdtest_test\data\FG_2024.ndf') TO FILEGROUP [FG_2024];
+
+
+
+
+CREATE TABLE Orders
+    (
+    OrderID int NOT NULL,
+    OrderDate date NOT NULL,
+    Amount decimal NOT NULL,
+    CONSTRAINT PK_orders PRIMARY KEY (OrderID)
+    );
+
+INSERT INTO Orders VALUES (101, '2021-07-01', 1000.00);
+INSERT INTO Orders VALUES (201, '2022-07-02', 2000.00);
+INSERT INTO Orders VALUES (301, '2023-07-03', 1500.00);
+
+
+--Create a partition function. This function will divide the table data into partitions. 
+--We’ll name this function OrdersPF. We’ll partition our data based on the OrderID column.
+
+
+CREATE PARTITION FUNCTION OrdersPF (date)
+AS RANGE RIGHT FOR VALUES ('2021-01-01', '2022-01-01', '2023-01-01');
+
+--more example of function 
+CREATE PARTITION FUNCTION OrdersPF (int)
+AS RANGE LEFT FOR VALUES (100, 200, 300, 400);
+
+--This function creates 5 partitions. The first will hold rows with values from -infinity to 100, the second from 101 to 200,
+the third from 201 to 300, the fourth from 301 to 400, and the last for 401 to infinity.
+
+
+--create a partition scheme. This will map the partitions to filegroups. We’ll name our scheme OrdersPS
+
+CREATE PARTITION SCHEME OrdersPS
+AS PARTITION OrdersPF
+TO ([FG_2021], [FG_2022], [FG_2023], [FG_2024]);
+
+
+--we have to drop primary key on that table to do partition
+
+ALTER TABLE [dbo].[Orders] DROP CONSTRAINT [PK_orders] ;
+
+
+---------Modify the Orders table to use the partition scheme. We’ll create a clustered index on OrderID, the column we’re using to partition our data
+
+CREATE CLUSTERED INDEX idx_OrderID
+ON Orders (OrderID)
+ON OrdersPS (OrderID);
+
+--more appropriate way
+ALTER TABLE FDTestDatabase.dbo.Orders ADD CONSTRAINT [PK_orders] PRIMARY KEY CLUSTERED
+(
+	OrderDate ASC,
+	OrderID ASC
+)
+ON OrdersPS(OrderDate);
+
+
+
+---let’s see how our data is distributed among the partitions. We can check this using the system view sys.partitions.
+
+SELECT $PARTITION.OrdersPF(OrderID) AS Partition, COUNT(*) AS [COUNT]
+FROM Orders
+GROUP BY $PARTITION.OrdersPF(OrderID)
+ORDER BY Partition;
+
+-- view all of the records on a specified partition (2)
+SELECT * FROM FDTestDatabase.dbo.Orders
+    WHERE $PARTITION.PFYears(OrderYear) =2;
+
+--View data, that lies in which partition
+SELECT *, $PARTITION.OrdersPF(OrderDate) AS PartitionID
+FROM FDTestDatabase.dbo.Orders;
+
+--------------------------------------Add Data File for Future Date---------------------------------------------------------------------------------------------
+
+ALTER DATABASE [FDTestDatabase]
+ADD FILEGROUP [FG_2019];
+
+ALTER DATABASE [FDTestDatabase]
+ADD FILE (NAME = 'FG_2019', FILENAME = 'D:\Fdtest_test\data\FG_2019.ndf') TO FILEGROUP [FG_2019];
+
+
+ALTER PARTITION SCHEME PSYears
+NEXT USED [FG_2019];
+
+ALTER PARTITION FUNCTION PFYears()
+SPLIT RANGE (2019);
+
+
+
+
+
+--------------------------------------------------------More Insights--------------------------------------------------
+
+drop table FDTestDatabase.dbo.Orders;
+drop PARTITION FUNCTION OrdersPF; 
+drop PARTITION SCHEME OrdersPS;
+
+CREATE TABLE Orders
+    (
+    OrderID int NOT NULL,
+    OrderDate datetime NOT NULL,
+    Amount decimal NOT NULL,
+    CONSTRAINT PK_Person PRIMARY KEY (OrderID)
+    );
+
+INSERT INTO Orders VALUES (101, '2021-07-01 00:00:00.000', 1000.00);
+INSERT INTO Orders VALUES (201, '2022-07-02 00:00:00.000', 2000.00);
+INSERT INTO Orders VALUES (301, '2023-07-03 00:00:00.000', 1500.00);
+
+select rundate  from internaltoolset.web.KeywordRankings_Raw krr ;
+select * from FDTestDatabase.dbo.Orders;
+
+CREATE PARTITION FUNCTION OrdersPF (datetime)
+AS RANGE RIGHT FOR VALUES
+('2021-01-01','2022-01-01','2023-01-01');
+
+
+
+CREATE PARTITION SCHEME OrdersPS
+AS PARTITION OrdersPF
+TO ([FG_2021], [FG_2022], [FG_2023], [FG_2024]);
+
+
+ALTER TABLE [dbo].[Orders] DROP CONSTRAINT [PK_Person] ;
+
+--CREATE CLUSTERED INDEX idx_OrderID
+--ON Orders (OrderDate,OrderID)
+--ON OrdersPS (OrderDate);
+
+ALTER TABLE FDTestDatabase.dbo.Orders ADD CONSTRAINT [PK_Person] PRIMARY KEY CLUSTERED
+(
+	OrderDate ASC,
+	OrderID ASC
+)
+ON OrdersPS(OrderDate);
